@@ -1,0 +1,3 @@
+# STACKZYRO CRM – Netlify Single Page Application (SPA) Routing Rule
+# Ensures direct navigation to /leads, /proposals, /settings, /attendance, etc. works without 404s
+/*    /index.html   200
