@@ -27,7 +27,14 @@ from ..serialize import (
     meeting_dict,
     user_brief,
 )
-from ..timezone import format_iso_ist, format_iso_utc, now_ist, today_ist
+from ..timezone import (
+    format_iso_ist,
+    format_iso_utc,
+    ist_day_bounds_utc,
+    now_ist,
+    now_utc_naive,
+    today_ist,
+)
 from ..utils import parse_date
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -48,13 +55,12 @@ def _lead_status_counts(db: Session, *conditions) -> dict:
 
 
 def _call_activity(db: Session, scope_conditions: list, base_date: date | None = None) -> dict:
-    ref_date = base_date or datetime.now().date()
+    ref_date = base_date or today_ist()
     daily = []
     for offset in range(6, -1, -1):
         day = ref_date - timedelta(days=offset)
-        start = datetime.combine(day, datetime.min.time())
-        end = start + timedelta(days=1)
-        base = [Call.called_at >= start, Call.called_at < end, *scope_conditions]
+        start, end = ist_day_bounds_utc(day)
+        base = [Call.called_at >= start, Call.called_at <= end, *scope_conditions]
         total = _count(db, Call, *base)
         not_taken = _count(db, Call, *base, Call.outcome == "not_taken")
         daily.append(
@@ -70,16 +76,15 @@ def _call_activity(db: Session, scope_conditions: list, base_date: date | None =
 
 
 def _today_followups(db: Session, conditions: list, limit: int = 8) -> list[dict]:
-    today = datetime.now().date()
-    start = datetime.combine(today, datetime.min.time())
-    end = start + timedelta(days=1)
+    today = today_ist()
+    start, end = ist_day_bounds_utc(today)
     rows = db.scalars(
         select(FollowUp)
         .options(
             selectinload(FollowUp.lead),
             selectinload(FollowUp.staff),
         )
-        .where(*conditions, FollowUp.status == "pending", FollowUp.due_at >= start, FollowUp.due_at < end)
+        .where(*conditions, FollowUp.status == "pending", FollowUp.due_at >= start, FollowUp.due_at <= end)
         .order_by(FollowUp.due_at)
         .limit(limit)
     ).all()
@@ -107,15 +112,15 @@ def dashboard(
 ):
     today = today_ist()
     now = now_ist()
-    start_today = datetime.combine(today, datetime.min.time())
-    end_today = start_today + timedelta(days=1)
-    last_30 = now - timedelta(days=30)
+    now_utc = now_utc_naive()
+    start_today, end_today = ist_day_bounds_utc(today)
+    last_30 = now_utc - timedelta(days=30)
 
     # Date range filters
     df = parse_date(date_from)
     dt = parse_date(date_to)
-    dt_end = datetime.combine(dt + timedelta(days=1), datetime.min.time()) if dt else None
-    df_start = datetime.combine(df, datetime.min.time()) if df else None
+    df_start, _ = ist_day_bounds_utc(df) if df else (None, None)
+    _, dt_end = ist_day_bounds_utc(dt) if dt else (None, None)
 
     if user.role == "admin":
         lead_filter = []
@@ -257,7 +262,7 @@ def dashboard(
             },
             "recent_activities": _recent_activities(db, []),
             "recent_logins": recent_logins,
-            "today_calls": _count(db, Call, Call.called_at >= start_today, Call.called_at < end_today),
+            "today_calls": _count(db, Call, Call.called_at >= start_today, Call.called_at <= end_today),
             "generated_at": now.isoformat(),
         }
 
@@ -265,7 +270,7 @@ def dashboard(
     my_leads = Lead.assigned_staff_id == user.id
     status_counts = _lead_status_counts(db, my_leads)
     my_calls_today = _count(
-        db, Call, Call.staff_id == user.id, Call.called_at >= start_today, Call.called_at < end_today
+        db, Call, Call.staff_id == user.id, Call.called_at >= start_today, Call.called_at <= end_today
     )
     my_calls = Call.staff_id == user.id
     attendance = db.scalar(
@@ -285,7 +290,7 @@ def dashboard(
         .options(selectinload(Meeting.lead), selectinload(Meeting.staff))
         .where(
             Meeting.staff_id == user.id,
-            Meeting.scheduled_at >= now,
+            Meeting.scheduled_at >= now_utc,
             Meeting.status.in_(["scheduled", "rescheduled"]),
         )
         .order_by(Meeting.scheduled_at)
@@ -301,7 +306,7 @@ def dashboard(
         "my_leads": {"value": _count(db, Lead, my_leads), "previous": None},
         "my_calls_today": {"value": my_calls_today, "previous": None},
         "not_taken": {
-            "value": _count(db, Call, my_calls, Call.called_at >= start_today, Call.outcome == "not_taken"),
+            "value": _count(db, Call, my_calls, Call.called_at >= start_today, Call.called_at <= end_today, Call.outcome == "not_taken"),
             "previous": None,
         },
         "interested": {"value": status_counts["interested"], "previous": None},

@@ -70,3 +70,25 @@ def format_iso_ist(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     return to_ist(dt).isoformat()
+
+
+def ist_day_bounds_utc(d: date) -> tuple[datetime, datetime]:
+    """Return naive UTC start and end datetimes for an entire calendar day in IST.
+
+    For example, 2026-11-11 in IST runs from 2026-11-11 00:00:00 to 23:59:59.999999.
+    In UTC, this corresponds to 2026-11-10 18:30:00 to 2026-11-11 18:29:59.999999.
+    """
+    start = (
+        datetime.combine(d, datetime.min.time())
+        .replace(tzinfo=IST)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+    end = (
+        datetime.combine(d, datetime.max.time())
+        .replace(tzinfo=IST)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+    return start, end
+

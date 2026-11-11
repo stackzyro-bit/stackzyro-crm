@@ -27,6 +27,7 @@ from .models import (
     User,
 )
 from .security import hash_password
+from .timezone import to_utc_naive
 from .utils import next_code
 
 RANDOM = random.Random(20260411)
@@ -188,10 +189,10 @@ def seed_database(db: Session) -> bool:
 
     admin = User(
         staff_code=next_code(db, "ST"),
-        name="Aarav Mehta",
+        name="Safana S",
         email="admin@stackzyro.com",
         phone="+91 98450 11001",
-        designation="Founder & CRM Administrator",
+        designation="Super Admin",
         role="admin",
         password_hash=hash_password("Admin@123"),
         is_active=True,
@@ -519,11 +520,11 @@ def seed_database(db: Session) -> bool:
                     continue
                 if index == 7:
                     continue
-                check_in = datetime.combine(work_day, time(hour=9, minute=RANDOM.randint(30, 55)))
+                check_in = to_utc_naive(datetime.combine(work_day, time(hour=9, minute=RANDOM.randint(30, 55))))
                 check_out = (
                     None
                     if index in {1, 6}
-                    else datetime.combine(work_day, time(hour=18, minute=RANDOM.randint(25, 55)))
+                    else to_utc_naive(datetime.combine(work_day, time(hour=18, minute=RANDOM.randint(25, 55))))
                 )
                 db.add(
                     Attendance(
@@ -547,8 +548,8 @@ def seed_database(db: Session) -> bool:
             elif roll < 0.09:
                 continue
             else:
-                check_in = datetime.combine(work_day, time(hour=9, minute=RANDOM.randint(28, 58)))
-                check_out = datetime.combine(work_day, time(hour=18, minute=RANDOM.randint(20, 59)))
+                check_in = to_utc_naive(datetime.combine(work_day, time(hour=9, minute=RANDOM.randint(28, 58))))
+                check_out = to_utc_naive(datetime.combine(work_day, time(hour=18, minute=RANDOM.randint(20, 59))))
                 db.add(
                     Attendance(
                         user_id=member.id,

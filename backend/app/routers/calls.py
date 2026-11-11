@@ -10,6 +10,7 @@ from ..deps import get_current_user, require_permission
 from ..models import Call, FollowUp, Lead, User
 from ..schemas import CallCreate
 from ..serialize import call_dict
+from ..timezone import ist_day_bounds_utc, now_utc_naive, to_utc_naive
 from ..utils import day_bounds, log_activity, next_code, paginate, parse_date, require_found
 
 router = APIRouter(prefix="/api/calls", tags=["calls"])
@@ -55,9 +56,11 @@ def list_calls(
     start = parse_date(date_from)
     end = parse_date(date_to)
     if start:
-        stmt = stmt.where(Call.called_at >= datetime.combine(start, datetime.min.time()))
+        start_utc, _ = ist_day_bounds_utc(start)
+        stmt = stmt.where(Call.called_at >= start_utc)
     if end:
-        stmt = stmt.where(Call.called_at <= datetime.combine(end, datetime.max.time()))
+        _, end_utc = ist_day_bounds_utc(end)
+        stmt = stmt.where(Call.called_at <= end_utc)
     stmt = stmt.order_by(Call.called_at.desc(), Call.id.desc())
 
     result = paginate(db, stmt, page, page_size)
@@ -93,7 +96,8 @@ def create_call(
             detail="This lead is already a client. Add the conversation as a meeting note instead.",
         )
 
-    called_at = payload.called_at or datetime.now()
+    called_at = to_utc_naive(payload.called_at) if payload.called_at else now_utc_naive()
+    next_follow_up = to_utc_naive(payload.next_follow_up) if payload.next_follow_up else None
     call = Call(
         code=next_code(db, "CA"),
         lead_id=lead.id,
@@ -101,7 +105,7 @@ def create_call(
         called_at=called_at,
         outcome=payload.outcome,
         notes=payload.notes,
-        next_follow_up=payload.next_follow_up,
+        next_follow_up=next_follow_up,
     )
     db.add(call)
 
@@ -110,16 +114,16 @@ def create_call(
         lead.status = mapped_status
     if payload.outcome == "do_not_contact":
         lead.next_follow_up = None
-    elif payload.next_follow_up:
-        lead.next_follow_up = payload.next_follow_up
+    elif next_follow_up:
+        lead.next_follow_up = next_follow_up
 
-    if payload.next_follow_up and payload.create_follow_up:
+    if next_follow_up and payload.create_follow_up:
         db.add(
             FollowUp(
                 code=next_code(db, "FU"),
                 lead_id=lead.id,
                 staff_id=lead.assigned_staff_id or user.id,
-                due_at=payload.next_follow_up,
+                due_at=next_follow_up,
                 method="call",
                 notes=f"Follow-up scheduled from call {call.code}.",
                 status="pending",

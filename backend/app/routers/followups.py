@@ -10,6 +10,7 @@ from ..deps import get_current_user, require_permission
 from ..models import FollowUp, Lead, User
 from ..schemas import FollowUpCreate, FollowUpUpdate
 from ..serialize import followup_dict
+from ..timezone import ist_day_bounds_utc, now_utc_naive, to_ist, to_utc_naive, today_ist
 from ..utils import day_bounds, log_activity, next_code, paginate, parse_date, require_found
 
 router = APIRouter(prefix="/api/followups", tags=["follow-ups"])
@@ -43,9 +44,9 @@ def list_followups(
     user: User = Depends(require_permission("followups", "view")),
     db: Session = Depends(get_db),
 ):
-    now = datetime.now()
-    today = now.date()
-    start_today, end_today = day_bounds(today)
+    now = now_utc_naive()
+    today = today_ist()
+    start_today, end_today = ist_day_bounds_utc(today)
 
     stmt = select(FollowUp).options(*FOLLOWUP_OPTIONS)
     if user.role != "admin":
@@ -80,9 +81,11 @@ def list_followups(
     start = parse_date(date_from)
     end = parse_date(date_to)
     if start:
-        stmt = stmt.where(FollowUp.due_at >= datetime.combine(start, datetime.min.time()))
+        start_utc, _ = ist_day_bounds_utc(start)
+        stmt = stmt.where(FollowUp.due_at >= start_utc)
     if end:
-        stmt = stmt.where(FollowUp.due_at <= datetime.combine(end, datetime.max.time()))
+        _, end_utc = ist_day_bounds_utc(end)
+        stmt = stmt.where(FollowUp.due_at <= end_utc)
 
     stmt = stmt.order_by(FollowUp.due_at.asc(), FollowUp.id.asc())
     result = paginate(db, stmt, page, page_size)
@@ -156,23 +159,25 @@ def create_followup(
     if user.role != "admin":
         staff_id = user.id
 
+    due_at = to_utc_naive(payload.due_at)
     followup = FollowUp(
         code=next_code(db, "FU"),
         lead_id=lead.id,
         staff_id=staff_id,
-        due_at=payload.due_at,
+        due_at=due_at,
         method=payload.method,
         notes=payload.notes,
         status="pending",
     )
     db.add(followup)
     _sync_lead_followup(db, lead.id)
+    ist_display = to_ist(due_at)
     log_activity(
         db,
         actor_id=user.id,
         type="followup_scheduled",
         title=f"Follow-up scheduled with {lead.business_name}",
-        description=f"{payload.due_at.strftime('%d %b %Y, %I:%M %p')} · {payload.method}",
+        description=f"{ist_display.strftime('%d %b %Y, %I:%M %p')} · {payload.method}" if ist_display else payload.method,
         entity_type="lead",
         entity_id=lead.id,
     )
@@ -181,7 +186,7 @@ def create_followup(
         actor_id=user.id,
         action="followup.created",
         category="followup",
-        description=f"Follow-up {followup.code} scheduled for {lead.business_name} on {payload.due_at.strftime('%Y-%m-%d %H:%M')}",
+        description=f"Follow-up {followup.code} scheduled for {lead.business_name} on {ist_display.strftime('%Y-%m-%d %H:%M') if ist_display else ''}",
         entity_type="followup",
         entity_id=lead.id,
         entity_ref=followup.code,
@@ -210,6 +215,8 @@ def update_followup(
     data = payload.model_dump(exclude_unset=True)
     if user.role != "admin":
         data.pop("staff_id", None)
+    if "due_at" in data and data["due_at"] is not None:
+        data["due_at"] = to_utc_naive(data["due_at"])
     if data.get("due_at") and followup.status == "pending":
         data["status"] = "pending"
 
@@ -217,7 +224,7 @@ def update_followup(
         setattr(followup, field, value)
 
     if data.get("status") == "completed":
-        followup.completed_at = datetime.now()
+        followup.completed_at = now_utc_naive()
         log_activity(
             db,
             actor_id=user.id,

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import require_admin, require_permission
 from ..models import Attendance, Call, FollowUp, Lead, Proposal, User
-from ..timezone import today_ist
+from ..timezone import ist_day_bounds_utc, today_ist
 from ..utils import csv_escape, parse_date
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -42,8 +42,8 @@ def _resolve_range(preset: str, date_from: str | None, date_to: str | None):
 
 
 def _build_report(db: Session, start: date, end: date) -> dict:
-    start_dt = datetime.combine(start, datetime.min.time())
-    end_dt = datetime.combine(end, datetime.max.time())
+    start_dt, _ = ist_day_bounds_utc(start)
+    _, end_dt = ist_day_bounds_utc(end)
     lead_window = (Lead.created_at >= start_dt, Lead.created_at <= end_dt)
     call_window = (Call.called_at >= start_dt, Call.called_at <= end_dt)
 

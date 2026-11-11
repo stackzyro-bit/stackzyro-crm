@@ -176,7 +176,7 @@ export function Sidebar({
             <div className={cn("min-w-0 flex-1", compact && "lg:hidden")}>
               <p className="truncate text-[12.5px] font-semibold text-ink-900">{user?.name}</p>
               <p className="truncate text-[10.5px] text-ink-400">
-                {user?.role === "admin" ? "Administrator" : user?.designation ?? "Staff"}
+                {user?.designation || (user?.role === "admin" ? "Super Admin" : "Staff")}
               </p>
             </div>
             <button

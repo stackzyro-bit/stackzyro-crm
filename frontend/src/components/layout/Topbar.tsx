@@ -242,7 +242,9 @@ export function Topbar({
               <span className="block max-w-[120px] truncate text-[11.5px] font-semibold text-ink-900">
                 {user?.name}
               </span>
-              <span className="block text-[10px] capitalize text-ink-400">{user?.role}</span>
+              <span className="block text-[10px] capitalize text-ink-400">
+                {user?.designation || (user?.role === "admin" ? "Super Admin" : user?.role)}
+              </span>
             </span>
           </button>
           {profileOpen ? (
@@ -257,7 +259,7 @@ export function Topbar({
                 </div>
                 <div className="mt-2.5 flex items-center gap-1.5">
                   <Badge tone={user?.role === "admin" ? "purple" : "blue"}>
-                    {user?.role === "admin" ? "Administrator" : "Staff member"}
+                    {user?.designation || (user?.role === "admin" ? "Super Admin" : "Staff member")}
                   </Badge>
                   <span className="text-[10px] text-ink-400">{user?.staff_code}</span>
                 </div>

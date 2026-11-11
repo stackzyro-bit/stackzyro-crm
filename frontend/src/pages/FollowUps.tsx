@@ -88,7 +88,7 @@ function FollowUpCalendar({
   const byDay = useMemo(() => {
     const map: Record<string, FollowUp[]> = {};
     items.forEach((item) => {
-      const key = item.due_at.slice(0, 10);
+      const key = toDateInput(item.due_at);
       map[key] = [...(map[key] ?? []), item];
     });
     return map;

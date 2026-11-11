@@ -18,7 +18,7 @@ from .models import (
     Proposal,
     User,
 )
-from .timezone import format_iso_ist, format_iso_utc
+from .timezone import format_iso_ist, format_iso_utc, now_utc_naive
 from .utils import money
 
 
@@ -68,7 +68,7 @@ def audit_log_dict(entry) -> dict:
         "previous_state": json.loads(entry.previous_state) if entry.previous_state else None,
         "new_state": json.loads(entry.new_state) if entry.new_state else None,
         "ip_address": entry.ip_address,
-        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+        "created_at": format_iso_utc(entry.created_at),
     }
 
 
@@ -91,10 +91,10 @@ def lead_dict(lead: Lead, detail: bool = False) -> dict:
         "assigned_staff_id": lead.assigned_staff_id,
         "assigned_staff": user_brief(lead.assigned_staff),
         "services": [{"id": s.id, "name": s.name} for s in lead.services],
-        "next_follow_up": lead.next_follow_up.isoformat() if lead.next_follow_up else None,
+        "next_follow_up": format_iso_utc(lead.next_follow_up),
         "created_by": user_brief(lead.created_by),
-        "created_at": lead.created_at.isoformat(),
-        "updated_at": lead.updated_at.isoformat(),
+        "created_at": format_iso_utc(lead.created_at),
+        "updated_at": format_iso_utc(lead.updated_at),
     }
     if detail:
         data["calls"] = [call_dict(c) for c in lead.calls]
@@ -114,17 +114,17 @@ def call_dict(call: Call) -> dict:
         "business_name": call.lead.business_name if call.lead else None,
         "staff_id": call.staff_id,
         "staff": user_brief(call.staff),
-        "called_at": call.called_at.isoformat(),
+        "called_at": format_iso_utc(call.called_at),
         "outcome": call.outcome,
         "notes": call.notes,
-        "next_follow_up": call.next_follow_up.isoformat() if call.next_follow_up else None,
-        "created_at": call.created_at.isoformat(),
+        "next_follow_up": format_iso_utc(call.next_follow_up),
+        "created_at": format_iso_utc(call.created_at),
     }
 
 
 def followup_effective_status(followup: FollowUp, now: datetime | None = None) -> str:
-    now = now or datetime.now()
-    if followup.status == "pending" and followup.due_at < now:
+    now = now or now_utc_naive()
+    if followup.status == "pending" and followup.due_at and followup.due_at < now:
         return "overdue"
     return followup.status
 
@@ -140,13 +140,13 @@ def followup_dict(followup: FollowUp) -> dict:
         "phone": followup.lead.phone if followup.lead else None,
         "staff_id": followup.staff_id,
         "staff": user_brief(followup.staff),
-        "due_at": followup.due_at.isoformat(),
+        "due_at": format_iso_utc(followup.due_at),
         "method": followup.method,
         "notes": followup.notes,
         "status": followup_effective_status(followup),
         "stored_status": followup.status,
-        "completed_at": followup.completed_at.isoformat() if followup.completed_at else None,
-        "created_at": followup.created_at.isoformat(),
+        "completed_at": format_iso_utc(followup.completed_at),
+        "created_at": format_iso_utc(followup.created_at),
     }
 
 
@@ -215,13 +215,13 @@ def meeting_dict(meeting: Meeting) -> dict:
         "phone": meeting.lead.phone if meeting.lead else None,
         "staff_id": meeting.staff_id,
         "staff": user_brief(meeting.staff),
-        "scheduled_at": meeting.scheduled_at.isoformat(),
+        "scheduled_at": format_iso_utc(meeting.scheduled_at),
         "duration_minutes": meeting.duration_minutes,
         "meeting_type": meeting.meeting_type,
         "location": meeting.location,
         "status": meeting.status,
         "notes": meeting.notes,
-        "created_at": meeting.created_at.isoformat(),
+        "created_at": format_iso_utc(meeting.created_at),
     }
 
 
@@ -331,7 +331,7 @@ def activity_dict(activity: Activity) -> dict:
         "entity_type": activity.entity_type,
         "entity_id": activity.entity_id,
         "actor": user_brief(activity.actor),
-        "created_at": activity.created_at.isoformat(),
+        "created_at": format_iso_utc(activity.created_at),
     }
 
 
