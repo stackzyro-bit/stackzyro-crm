@@ -412,6 +412,7 @@ export function Dashboard() {
   const isWorking = Boolean(activeSession);
   const hasEverCheckedIn = Boolean(attendance?.check_in);
   const todayLabel = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
     weekday: "long",
     day: "numeric",
     month: "long",

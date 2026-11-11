@@ -140,9 +140,16 @@ export function statusTone(value: string | null | undefined): Tone {
   }
 }
 
+export const APP_TIMEZONE = "Asia/Kolkata";
+
 function parse(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const date = new Date(value);
+  let str = String(value).trim();
+  // If naive datetime without timezone, treat as UTC by appending 'Z'
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(str)) {
+    str = str.replace(" ", "T") + "Z";
+  }
+  const date = new Date(str);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -150,6 +157,7 @@ export function formatDate(value: string | null | undefined, fallback = "—"): 
   const date = parse(value);
   if (!date) return fallback;
   return new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TIMEZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -159,14 +167,19 @@ export function formatDate(value: string | null | undefined, fallback = "—"): 
 export function formatShortDate(value: string | null | undefined, fallback = "—"): string {
   const date = parse(value);
   if (!date) return fallback;
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short" }).format(date);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TIMEZONE,
+    day: "2-digit",
+    month: "short",
+  }).format(date);
 }
 
 export function formatTime(value: string | null | undefined, fallback = "—"): string {
   const date = parse(value);
   if (!date) return fallback;
   return new Intl.DateTimeFormat("en-IN", {
-    hour: "numeric",
+    timeZone: APP_TIMEZONE,
+    hour: "2-digit",
     minute: "2-digit",
     hour12: true,
   }).format(date);
@@ -226,26 +239,36 @@ export function initials(name: string | null | undefined): string {
 export function toDateTimeInput(value: string | null | undefined): string {
   const date = parse(value);
   if (!date) return "";
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 export function toDateInput(value: Date | string = new Date()): string {
-  const date = typeof value === "string" ? new Date(value) : value;
-  const pad = (part: number) => String(part).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const date = typeof value === "string" ? parse(value) : value;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 export function isSameDay(a: string | null | undefined, b: Date): boolean {
-  const date = parse(a);
-  if (!date) return false;
-  return (
-    date.getFullYear() === b.getFullYear() &&
-    date.getMonth() === b.getMonth() &&
-    date.getDate() === b.getDate()
-  );
+  const dateA = parse(a);
+  if (!dateA) return false;
+  return toDateInput(dateA) === toDateInput(b);
 }
 
 export function isToday(value: string | null | undefined): boolean {
@@ -258,12 +281,21 @@ export function isPast(value: string | null | undefined): boolean {
 }
 
 export function greeting(): string {
-  const hour = new Date().getHours();
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TIMEZONE,
+    hour: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 12);
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
 }
 
 export function monthTitle(value: Date): string {
-  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(value);
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TIMEZONE,
+    month: "long",
+    year: "numeric",
+  }).format(value);
 }

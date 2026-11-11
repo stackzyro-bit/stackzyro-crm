@@ -21,6 +21,15 @@ from ..schemas import (
     SessionManualEdit,
 )
 from ..serialize import _format_duration, attendance_dict, attendance_session_dict, user_brief
+from ..timezone import (
+    format_iso_ist,
+    format_iso_utc,
+    now_ist,
+    now_utc_naive,
+    to_ist,
+    to_utc_naive,
+    today_ist,
+)
 from ..utils import paginate, parse_date, require_found
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
@@ -120,7 +129,7 @@ def _recalculate_daily_metrics(db: Session, user_id: int, work_date: date) -> At
 
 
 def _get_today_status(db: Session, user: User, target_date: date | None = None) -> dict[str, Any]:
-    today = target_date or date.today()
+    today = target_date or today_ist()
     sessions = db.scalars(
         select(AttendanceSession)
         .options(*SESSION_OPTIONS)
@@ -141,13 +150,13 @@ def _get_today_status(db: Session, user: User, target_date: date | None = None) 
         select(Attendance).where(Attendance.user_id == user.id, Attendance.work_date == today)
     )
 
-    first_in = sessions[0].check_in.isoformat() if sessions and sessions[0].check_in else None
+    first_in = format_iso_utc(sessions[0].check_in) if sessions and sessions[0].check_in else None
     latest_session = sessions[-1] if sessions else None
-    latest_in = latest_session.check_in.isoformat() if latest_session and latest_session.check_in else None
+    latest_in = format_iso_utc(latest_session.check_in) if latest_session and latest_session.check_in else None
     latest_out = (
-        daily_record.check_out.isoformat()
+        format_iso_utc(daily_record.check_out)
         if daily_record and daily_record.check_out
-        else (latest_session.check_out.isoformat() if latest_session and latest_session.check_out else None)
+        else (format_iso_utc(latest_session.check_out) if latest_session and latest_session.check_out else None)
     )
 
     total_working = daily_record.total_working_seconds if daily_record else 0
@@ -202,8 +211,8 @@ def check_in(
     user: User = Depends(require_permission("attendance", "create")),
     db: Session = Depends(get_db),
 ):
-    now = datetime.now()
-    today = now.date()
+    now = now_utc_naive()
+    today = today_ist()
 
     # 1. Check if user already has an active session today
     active_today = db.scalar(
@@ -293,10 +302,10 @@ def check_in(
         actor_id=user.id,
         action="attendance.check_in",
         category="attendance",
-        description=f"Checked in for Session #{new_session_num} at {now.strftime('%I:%M %p')}.",
+        description=f"Checked in for Session #{new_session_num} at {to_ist(now).strftime('%I:%M %p')}.",
         entity_type="attendance_session",
         entity_id=new_session.id,
-        new_state={"session_number": new_session_num, "check_in": now.isoformat()},
+        new_state={"session_number": new_session_num, "check_in": format_iso_ist(now)},
     )
 
     db.commit()
@@ -309,8 +318,8 @@ def check_out(
     user: User = Depends(require_permission("attendance", "create")),
     db: Session = Depends(get_db),
 ):
-    now = datetime.now()
-    today = now.date()
+    now = now_utc_naive()
+    today = today_ist()
 
     # 1. Find active session
     session = db.scalar(
@@ -359,7 +368,7 @@ def check_out(
         entity_id=session.id,
         new_state={
             "session_number": session.session_number,
-            "check_out": now.isoformat(),
+            "check_out": format_iso_ist(now),
             "reason": clean_reason,
             "working_seconds": worked_sec,
         },
@@ -476,7 +485,7 @@ def attendance_summary(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    day = parse_date(work_date) or date.today()
+    day = parse_date(work_date) or today_ist()
     total_staff = int(
         db.scalar(select(func.count(User.id)).where(User.role == "staff", User.is_active.is_(True))) or 0
     )
@@ -617,7 +626,7 @@ def resolve_flag(
         "check_out": session.check_out.isoformat() if session.check_out else None,
     }
 
-    session.check_out = payload.check_out
+    session.check_out = to_utc_naive(payload.check_out)
     session.check_out_reason = payload.check_out_reason
     session.check_out_note = payload.check_out_note
     session.status = "completed"
@@ -632,12 +641,12 @@ def resolve_flag(
         actor_id=user.id,
         action="attendance.flag_resolved",
         category="attendance",
-        description=f"Resolved flagged session #{session.session_number} for user #{session.user_id} with checkout {payload.check_out.strftime('%I:%M %p')}. Reason: {payload.resolution_reason}",
+        description=f"Resolved flagged session #{session.session_number} for user #{session.user_id} with checkout {to_ist(session.check_out).strftime('%I:%M %p')}. Reason: {payload.resolution_reason}",
         entity_type="attendance_session",
         entity_id=session.id,
         previous_state=prev_state,
         new_state={
-            "check_out": payload.check_out.isoformat(),
+            "check_out": format_iso_ist(session.check_out),
             "reason": payload.check_out_reason,
             "correction_reason": payload.resolution_reason,
         },
@@ -674,16 +683,19 @@ def admin_create_session(
         or 0
     )
 
+    check_in_utc = to_utc_naive(payload.check_in)
+    check_out_utc = to_utc_naive(payload.check_out) if payload.check_out else None
+
     new_session = AttendanceSession(
         user_id=payload.user_id,
         work_date=payload.work_date,
         session_number=session_count + 1,
-        check_in=payload.check_in,
-        check_out=payload.check_out,
+        check_in=check_in_utc,
+        check_out=check_out_utc,
         check_out_reason=payload.check_out_reason or "Official Work Outside Office",
         check_out_note=payload.check_out_note,
         check_in_note=payload.check_in_note,
-        status="completed" if payload.check_out else "active",
+        status="completed" if check_out_utc else "active",
         is_manual=True,
         correction_reason=payload.correction_reason,
         corrected_by_id=user.id,
@@ -704,8 +716,8 @@ def admin_create_session(
         new_state={
             "user_id": payload.user_id,
             "work_date": payload.work_date.isoformat(),
-            "check_in": payload.check_in.isoformat(),
-            "check_out": payload.check_out.isoformat() if payload.check_out else None,
+            "check_in": format_iso_ist(check_in_utc),
+            "check_out": format_iso_ist(check_out_utc) if check_out_utc else None,
             "reason": payload.correction_reason,
         },
     )
@@ -736,9 +748,9 @@ def admin_edit_session(
     }
 
     if payload.check_in is not None:
-        session.check_in = payload.check_in
+        session.check_in = to_utc_naive(payload.check_in)
     if payload.check_out is not None:
-        session.check_out = payload.check_out
+        session.check_out = to_utc_naive(payload.check_out)
     if payload.check_out_reason is not None:
         session.check_out_reason = payload.check_out_reason
     if payload.check_out_note is not None:
@@ -874,8 +886,8 @@ def export_attendance_report(
             r.user.staff_code or "",
             r.user.name or "",
             getattr(r.user, "department", "") or "",
-            r.check_in.strftime("%I:%M %p") if r.check_in else "Not Recorded",
-            r.check_out.strftime("%I:%M %p") if r.check_out else "Not Recorded",
+            to_ist(r.check_in).strftime("%I:%M %p") if r.check_in else "Not Recorded",
+            to_ist(r.check_out).strftime("%I:%M %p") if r.check_out else "Not Recorded",
             _format_duration(r.total_working_seconds),
             f"{round(r.total_working_seconds / 3600, 2)}" if r.total_working_seconds else "0.00",
             _format_duration(r.total_break_seconds),
@@ -886,7 +898,7 @@ def export_attendance_report(
         ])
 
     csv_data = output.getvalue()
-    filename = f"STACKZYRO_Attendance_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"STACKZYRO_Attendance_Report_{now_ist().strftime('%Y%m%d_%H%M%S')}.csv"
     return Response(
         content=csv_data,
         media_type="text/csv",

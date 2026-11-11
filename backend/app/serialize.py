@@ -18,6 +18,7 @@ from .models import (
     Proposal,
     User,
 )
+from .timezone import format_iso_ist, format_iso_utc
 from .utils import money
 
 
@@ -266,8 +267,8 @@ def attendance_session_dict(session: AttendanceSession) -> dict:
         "user_id": session.user_id,
         "work_date": session.work_date.isoformat(),
         "session_number": session.session_number,
-        "check_in": session.check_in.isoformat() if session.check_in else None,
-        "check_out": session.check_out.isoformat() if session.check_out else None,
+        "check_in": format_iso_utc(session.check_in),
+        "check_out": format_iso_utc(session.check_out),
         "check_out_reason": session.check_out_reason,
         "check_out_note": session.check_out_note,
         "check_in_note": session.check_in_note,
@@ -279,7 +280,7 @@ def attendance_session_dict(session: AttendanceSession) -> dict:
         "is_manual": bool(session.is_manual),
         "correction_reason": session.correction_reason,
         "corrected_by": user_brief(session.corrected_by) if getattr(session, "corrected_by", None) else None,
-        "created_at": session.created_at.isoformat() if session.created_at else None,
+        "created_at": format_iso_utc(session.created_at),
     }
 
 
@@ -305,8 +306,8 @@ def attendance_dict(record: Attendance, sessions: list[AttendanceSession] | None
         "user_id": record.user_id,
         "staff": user_brief(record.user),
         "work_date": record.work_date.isoformat(),
-        "check_in": record.check_in.isoformat() if record.check_in else None,
-        "check_out": record.check_out.isoformat() if record.check_out else None,
+        "check_in": format_iso_utc(record.check_in),
+        "check_out": format_iso_utc(record.check_out),
         "working_hours": hours,
         "total_working_seconds": total_working,
         "working_duration": _format_duration(total_working),

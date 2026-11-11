@@ -618,6 +618,7 @@ export function AttendancePage() {
                       <span className="text-xs text-ink-400">·</span>
                       <span className="text-xs font-semibold text-brand-700">
                         {new Intl.DateTimeFormat("en-GB", {
+                          timeZone: "Asia/Kolkata",
                           weekday: "long",
                           day: "numeric",
                           month: "long",

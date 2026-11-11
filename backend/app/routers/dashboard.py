@@ -27,6 +27,7 @@ from ..serialize import (
     meeting_dict,
     user_brief,
 )
+from ..timezone import format_iso_ist, format_iso_utc, now_ist, today_ist
 from ..utils import parse_date
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -104,8 +105,8 @@ def dashboard(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    today = date.today()
-    now = datetime.now()
+    today = today_ist()
+    now = now_ist()
     start_today = datetime.combine(today, datetime.min.time())
     end_today = start_today + timedelta(days=1)
     last_30 = now - timedelta(days=30)
@@ -199,8 +200,8 @@ def dashboard(
             item = {
                 "staff": user_brief(member),
                 "status": record.status if record else "absent",
-                "check_in": record.check_in.isoformat() if record and record.check_in else None,
-                "check_out": record.check_out.isoformat() if record and record.check_out else None,
+                "check_in": format_iso_utc(record.check_in) if record else None,
+                "check_out": format_iso_utc(record.check_out) if record else None,
             }
             staff_attendance.append(item)
 
