@@ -11,6 +11,7 @@ from ..deps import get_current_user, require_permission
 from ..models import Client, Lead, Service, User
 from ..schemas import LeadCreate, LeadUpdate
 from ..serialize import lead_dict
+from ..timezone import to_utc_naive
 from ..utils import (
     csv_escape,
     log_activity,
@@ -182,6 +183,46 @@ def export_leads(
     )
 
 
+@router.get("/options")
+def lead_options(
+    q: str | None = None,
+    user: User = Depends(require_permission("leads", "view")),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Lead).options(selectinload(Lead.assigned_staff))
+    if user.role != "admin":
+        stmt = stmt.where(Lead.assigned_staff_id == user.id)
+    if q:
+        term = f"%{q.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Lead.business_name.ilike(term),
+                Lead.code.ilike(term),
+                Lead.contact_person.ilike(term),
+                Lead.phone.ilike(term),
+            )
+        )
+    stmt = stmt.order_by(Lead.business_name.asc())
+    rows = db.scalars(stmt).all()
+    return [
+        {
+            "id": r.id,
+            "code": r.code,
+            "business_name": r.business_name,
+            "contact_person": r.contact_person,
+            "phone": r.phone,
+            "status": r.status,
+            "assigned_staff_id": r.assigned_staff_id,
+            "assigned_staff": (
+                {"id": r.assigned_staff.id, "name": r.assigned_staff.name}
+                if r.assigned_staff
+                else None
+            ),
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{lead_id}")
 def get_lead(
     lead_id: int,
@@ -267,6 +308,8 @@ def update_lead(
         assignee = db.get(User, data["assigned_staff_id"])
         if assignee is None or not assignee.is_active:
             raise HTTPException(status_code=422, detail="Selected staff member is not available.")
+    if "next_follow_up" in data and data["next_follow_up"] is not None:
+        data["next_follow_up"] = to_utc_naive(data["next_follow_up"])
 
     new_status = data.get("status")
     for field, value in data.items():

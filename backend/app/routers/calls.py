@@ -8,7 +8,7 @@ from ..audit import log_audit
 from ..database import get_db
 from ..deps import get_current_user, require_permission
 from ..models import Call, FollowUp, Lead, User
-from ..schemas import CallCreate
+from ..schemas import CallCreate, CallUpdate
 from ..serialize import call_dict
 from ..timezone import ist_day_bounds_utc, now_utc_naive, to_utc_naive
 from ..utils import day_bounds, log_activity, next_code, paginate, parse_date, require_found
@@ -147,6 +147,63 @@ def create_call(
         description=f"Call record {call.code} created for lead {lead.business_name} ({lead.code}), outcome: {payload.outcome}",
         entity_type="call",
         entity_id=lead.id,
+        entity_ref=call.code,
+    )
+    db.commit()
+    db.refresh(call)
+    return call_dict(call)
+
+
+@router.patch("/{call_id}")
+def update_call(
+    call_id: int,
+    payload: CallUpdate,
+    user: User = Depends(require_permission("calls", "create")),
+    db: Session = Depends(get_db),
+):
+    call = db.scalar(select(Call).options(*CALL_OPTIONS).where(Call.id == call_id))
+    require_found(call, "Call")
+    if user.role != "admin" and call.staff_id != user.id:
+        raise HTTPException(
+            status_code=403, detail="You can only update your own call records."
+        )
+
+    data = payload.model_dump(exclude_unset=True)
+    if "called_at" in data and data["called_at"] is not None:
+        call.called_at = to_utc_naive(data["called_at"])
+    if "notes" in data:
+        call.notes = data["notes"]
+    if "outcome" in data and data["outcome"] is not None:
+        call.outcome = data["outcome"]
+        mapped_status = OUTCOME_TO_LEAD_STATUS.get(data["outcome"])
+        if mapped_status and call.lead:
+            call.lead.status = mapped_status
+    if "next_follow_up" in data:
+        next_fu = to_utc_naive(data["next_follow_up"]) if data["next_follow_up"] else None
+        call.next_follow_up = next_fu
+        if call.lead:
+            if call.outcome == "do_not_contact":
+                call.lead.next_follow_up = None
+            elif next_fu:
+                call.lead.next_follow_up = next_fu
+
+    log_activity(
+        db,
+        actor_id=user.id,
+        type="call_updated",
+        title=f"Call updated for {call.lead.business_name if call.lead else 'lead'}",
+        description=f"{call.code} · Outcome: {call.outcome.replace('_', ' ')}",
+        entity_type="call",
+        entity_id=call.lead_id if call.lead else call.id,
+    )
+    log_audit(
+        db,
+        actor_id=user.id,
+        action="call.updated",
+        category="call",
+        description=f"Call record {call.code} updated, outcome: {call.outcome}",
+        entity_type="call",
+        entity_id=call.lead_id if call.lead else call.id,
         entity_ref=call.code,
     )
     db.commit()

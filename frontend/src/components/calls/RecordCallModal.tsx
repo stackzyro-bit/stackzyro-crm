@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMeta } from "../../context/MetaContext";
 import { useToast } from "../../context/ToastContext";
 import { api } from "../../lib/api";
@@ -22,17 +22,20 @@ export function RecordCallModal({
   open,
   onClose,
   leadId,
+  callRecord,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   leadId?: number | null;
+  callRecord?: CallRecord | null;
   onSaved?: () => void;
 }) {
   const { meta } = useMeta();
   const toast = useToast();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(false);
+  const [leadFilter, setLeadFilter] = useState("");
   const [form, setForm] = useState({
     lead_id: "",
     called_at: toDateTimeInput(new Date().toISOString()),
@@ -46,21 +49,44 @@ export function RecordCallModal({
 
   useEffect(() => {
     if (!open) return;
+    const effectiveLeadId = callRecord?.lead_id ?? leadId;
     setForm({
-      lead_id: leadId ? String(leadId) : "",
-      called_at: toDateTimeInput(new Date().toISOString()),
-      outcome: "",
-      notes: "",
-      next_follow_up: "",
-      create_follow_up: true,
+      lead_id: effectiveLeadId ? String(effectiveLeadId) : "",
+      called_at: callRecord
+        ? toDateTimeInput(callRecord.called_at)
+        : toDateTimeInput(new Date().toISOString()),
+      outcome: callRecord?.outcome ?? "",
+      notes: callRecord?.notes ?? "",
+      next_follow_up: callRecord?.next_follow_up
+        ? toDateTimeInput(callRecord.next_follow_up)
+        : "",
+      create_follow_up: !callRecord,
     });
+    setLeadFilter("");
     setErrors({});
     let active = true;
     setLoadingLeads(true);
-    api
-      .get<Paginated<Lead>>("/leads", { page_size: 100, sort: "business" })
-      .then((data) => {
-        if (active) setLeads(data.items);
+
+    const loadOptions = api
+      .get<Lead[]>("/leads/options")
+      .catch(() =>
+        api
+          .get<Paginated<Lead>>("/leads", { page_size: 500, sort: "business" })
+          .then((d) => d.items)
+      );
+
+    const loadPreset = effectiveLeadId
+      ? api.get<Lead>(`/leads/${effectiveLeadId}`).catch(() => null)
+      : Promise.resolve(null);
+
+    Promise.all([loadOptions, loadPreset])
+      .then(([allLeads, presetLead]) => {
+        if (!active) return;
+        let list = allLeads || [];
+        if (presetLead && !list.some((l) => l.id === presetLead.id)) {
+          list = [presetLead, ...list];
+        }
+        setLeads(list);
       })
       .catch(() => {
         if (active) setLeads([]);
@@ -68,12 +94,24 @@ export function RecordCallModal({
       .finally(() => {
         if (active) setLoadingLeads(false);
       });
+
     return () => {
       active = false;
     };
-  }, [open, leadId]);
+  }, [open, leadId, callRecord]);
 
   const selectedLead = leads.find((lead) => lead.id === Number(form.lead_id));
+
+  const filteredLeads = useMemo(() => {
+    if (!leadFilter.trim()) return leads;
+    const q = leadFilter.toLowerCase().trim();
+    return leads.filter(
+      (l) =>
+        l.business_name?.toLowerCase().includes(q) ||
+        l.code?.toLowerCase().includes(q) ||
+        l.contact_person?.toLowerCase().includes(q)
+    );
+  }, [leads, leadFilter]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -85,24 +123,42 @@ export function RecordCallModal({
 
     setSaving(true);
     try {
-      const call = await api.post<CallRecord>("/calls", {
-        lead_id: Number(form.lead_id),
-        called_at: form.called_at || null,
-        outcome: form.outcome,
-        notes: form.notes.trim() || null,
-        next_follow_up: form.next_follow_up || null,
-        create_follow_up: form.create_follow_up,
-      });
-      toast.success(
-        "Call recorded",
-        `${call.code} · ${call.business_name ?? "Lead"} — ${
-          CALL_OUTCOME_LABELS[call.outcome] ?? call.outcome
-        }`
-      );
+      if (callRecord) {
+        const updated = await api.patch<CallRecord>(`/calls/${callRecord.id}`, {
+          called_at: form.called_at || null,
+          outcome: form.outcome,
+          notes: form.notes.trim() || null,
+          next_follow_up: form.next_follow_up || null,
+        });
+        toast.success(
+          "Call record updated",
+          `${updated.code} · ${updated.business_name ?? "Lead"} — ${
+            CALL_OUTCOME_LABELS[updated.outcome] ?? updated.outcome
+          }`
+        );
+      } else {
+        const call = await api.post<CallRecord>("/calls", {
+          lead_id: Number(form.lead_id),
+          called_at: form.called_at || null,
+          outcome: form.outcome,
+          notes: form.notes.trim() || null,
+          next_follow_up: form.next_follow_up || null,
+          create_follow_up: form.create_follow_up,
+        });
+        toast.success(
+          "Call recorded",
+          `${call.code} · ${call.business_name ?? "Lead"} — ${
+            CALL_OUTCOME_LABELS[call.outcome] ?? call.outcome
+          }`
+        );
+      }
       onSaved?.();
       onClose();
     } catch (err) {
-      toast.error("Could not record call", err instanceof Error ? err.message : undefined);
+      toast.error(
+        callRecord ? "Could not update call record" : "Could not record call",
+        err instanceof Error ? err.message : undefined
+      );
     } finally {
       setSaving(false);
     }
@@ -112,38 +168,71 @@ export function RecordCallModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Record a call"
-      description="Each call is saved as a separate activity. The lead is never duplicated."
+      title={callRecord ? `Edit call ${callRecord.code}` : "Record a call"}
+      description={
+        callRecord
+          ? `Update conversation details for ${callRecord.business_name ?? "this lead"}.`
+          : "Each call is saved as a separate activity. The lead is never duplicated."
+      }
       footer={
         <>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button type="submit" form="call-form" loading={saving}>
-            Save call record
+            {callRecord ? "Save changes" : "Save call record"}
           </Button>
         </>
       }
     >
       <form id="call-form" onSubmit={submit} className="space-y-4" noValidate>
-        <Field label="Lead / business" required error={errors.lead_id}>
-          <Select
-            value={form.lead_id}
-            onChange={(event) => {
-              setForm((prev) => ({ ...prev, lead_id: event.target.value }));
-              setErrors((prev) => ({ ...prev, lead_id: "" }));
-            }}
-            invalid={Boolean(errors.lead_id)}
-            disabled={loadingLeads}
-          >
-            <option value="">{loadingLeads ? "Loading leads…" : "Select a lead"}</option>
-            {leads.map((lead) => (
-              <option key={lead.id} value={lead.id}>
-                {lead.business_name} · {lead.code}
+        <div>
+          <Field label="Lead / business" required error={errors.lead_id}>
+            {!callRecord && leads.length > 8 ? (
+              <Input
+                type="text"
+                placeholder="Type to filter leads (e.g. Zaira, Vintage, LD-0170)…"
+                value={leadFilter}
+                onChange={(event) => setLeadFilter(event.target.value)}
+                className="mb-1.5 text-[12px]"
+              />
+            ) : null}
+            <Select
+              value={form.lead_id}
+              onChange={(event) => {
+                setForm((prev) => ({ ...prev, lead_id: event.target.value }));
+                setErrors((prev) => ({ ...prev, lead_id: "" }));
+              }}
+              invalid={Boolean(errors.lead_id)}
+              disabled={loadingLeads || Boolean(callRecord)}
+            >
+              <option value="">
+                {loadingLeads
+                  ? "Loading leads…"
+                  : filteredLeads.length === 0
+                  ? "No matching leads found"
+                  : "Select a lead"}
               </option>
-            ))}
-          </Select>
-        </Field>
+              {form.lead_id &&
+              selectedLead &&
+              !filteredLeads.some((l) => l.id === selectedLead.id) ? (
+                <option value={selectedLead.id}>
+                  {selectedLead.business_name} · {selectedLead.code}
+                </option>
+              ) : null}
+              {filteredLeads.map((lead) => (
+                <option key={lead.id} value={lead.id}>
+                  {lead.business_name} · {lead.code}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {leads.length > 0 ? (
+            <p className="mt-1 text-[10px] text-ink-400">
+              Showing {filteredLeads.length} of {leads.length} available leads
+            </p>
+          ) : null}
+        </div>
 
         {selectedLead ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-[#fbf9ff] px-3 py-2 text-[11px] text-ink-500">
@@ -205,7 +294,7 @@ export function RecordCallModal({
               }
             />
           </Field>
-          {form.next_follow_up ? (
+          {!callRecord && form.next_follow_up ? (
             <Checkbox
               className="mt-2"
               label="Create a follow-up record automatically"

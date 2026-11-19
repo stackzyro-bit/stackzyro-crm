@@ -118,6 +118,13 @@ class CallCreate(BaseModel):
     create_follow_up: bool = True
 
 
+class CallUpdate(BaseModel):
+    outcome: CallOutcome | None = None
+    notes: str | None = None
+    called_at: datetime | None = None
+    next_follow_up: datetime | None = None
+
+
 class FollowUpCreate(BaseModel):
     lead_id: int
     due_at: datetime

@@ -74,7 +74,7 @@ def log_activity(
 
 def paginate(db: Session, stmt, page: int = 1, page_size: int = 10) -> dict:
     page = max(1, page)
-    page_size = min(max(1, page_size), 100)
+    page_size = min(max(1, page_size), 1000)
     count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
     total = int(db.scalar(count_stmt) or 0)
     rows = db.execute(stmt.offset((page - 1) * page_size).limit(page_size)).scalars().all()

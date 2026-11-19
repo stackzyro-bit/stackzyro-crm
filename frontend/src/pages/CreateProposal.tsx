@@ -81,12 +81,18 @@ export function CreateProposal() {
     let active = true;
     setLoadingTargets(true);
     Promise.all([
-      api.get<Paginated<Lead>>("/leads", { page_size: 100, sort: "business" }),
-      api.get<Paginated<Client>>("/clients", { page_size: 100 }),
+      api
+        .get<Lead[]>("/leads/options")
+        .catch(() =>
+          api
+            .get<Paginated<Lead>>("/leads", { page_size: 500, sort: "business" })
+            .then((d) => d.items)
+        ),
+      api.get<Paginated<Client>>("/clients", { page_size: 200 }),
     ])
-      .then(([leadsRes, clientsRes]) => {
+      .then(([leadsList, clientsRes]) => {
         if (!active) return;
-        setLeads(leadsRes.items);
+        setLeads(leadsList as Lead[]);
         setClients(clientsRes.items);
       })
       .catch((err) => {

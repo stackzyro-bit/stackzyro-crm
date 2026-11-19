@@ -124,11 +124,18 @@ export function Meetings() {
     if (!modalOpen) return;
     let active = true;
     api
-      .get<Paginated<Lead>>("/leads", { page_size: 100, sort: "business" })
-      .then((payload) => {
-        if (active) setLeads(payload.items);
+      .get<Lead[]>("/leads/options")
+      .then((items) => {
+        if (active) setLeads(items);
       })
-      .catch(() => undefined);
+      .catch(() =>
+        api
+          .get<Paginated<Lead>>("/leads", { page_size: 500, sort: "business" })
+          .then((payload) => {
+            if (active) setLeads(payload.items);
+          })
+          .catch(() => undefined)
+      );
     return () => {
       active = false;
     };

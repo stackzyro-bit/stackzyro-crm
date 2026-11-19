@@ -1,4 +1,4 @@
-import { Eye, PhoneCall, Plus, Trash2 } from "lucide-react";
+import { Eye, Pencil, PhoneCall, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { RecordCallModal } from "../components/calls/RecordCallModal";
@@ -54,6 +54,7 @@ export function Calls() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [presetLeadId, setPresetLeadId] = useState<number | null>(null);
+  const [editingCall, setEditingCall] = useState<CallRecord | null>(null);
   const [detail, setDetail] = useState<CallRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CallRecord | null>(null);
   const [busy, setBusy] = useState(false);
@@ -101,6 +102,7 @@ export function Calls() {
   const closeModal = () => {
     setModalOpen(false);
     setPresetLeadId(null);
+    setEditingCall(null);
     if (searchParams.get("new")) {
       const next = new URLSearchParams(searchParams);
       next.delete("new");
@@ -212,6 +214,15 @@ export function Calls() {
         <ActionMenu
           actions={[
             { label: "View details", icon: Eye, onClick: () => setDetail(call) },
+            {
+              label: "Edit call",
+              icon: Pencil,
+              hidden: user?.role !== "admin" && call.staff_id !== user?.id,
+              onClick: () => {
+                setEditingCall(call);
+                setModalOpen(true);
+              },
+            },
             {
               label: "Delete call",
               icon: Trash2,
@@ -382,6 +393,7 @@ export function Calls() {
         open={modalOpen}
         onClose={closeModal}
         leadId={presetLeadId}
+        callRecord={editingCall}
         onSaved={() => void load()}
       />
 
@@ -390,6 +402,25 @@ export function Calls() {
         onClose={() => setDetail(null)}
         title={detail ? `Call ${detail.code}` : "Call details"}
         description={detail ? `${detail.business_name} · ${detail.lead_code}` : undefined}
+        footer={
+          detail ? (
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                leftIcon={<Pencil className="h-3.5 w-3.5" />}
+                onClick={() => {
+                  setEditingCall(detail);
+                  setDetail(null);
+                  setModalOpen(true);
+                }}
+                disabled={user?.role !== "admin" && detail.staff_id !== user?.id}
+              >
+                Edit call
+              </Button>
+            </div>
+          ) : null
+        }
       >
         {detail ? (
           <div className="space-y-4">

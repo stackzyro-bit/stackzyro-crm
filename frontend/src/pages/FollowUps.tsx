@@ -301,11 +301,18 @@ export function FollowUps() {
     if (!modalOpen || editing) return;
     let active = true;
     api
-      .get<Paginated<Lead>>("/leads", { page_size: 100, sort: "business" })
-      .then((payload) => {
-        if (active) setLeadOptions(payload.items);
+      .get<Lead[]>("/leads/options")
+      .then((items) => {
+        if (active) setLeadOptions(items);
       })
-      .catch(() => undefined);
+      .catch(() =>
+        api
+          .get<Paginated<Lead>>("/leads", { page_size: 500, sort: "business" })
+          .then((payload) => {
+            if (active) setLeadOptions(payload.items);
+          })
+          .catch(() => undefined)
+      );
     return () => {
       active = false;
     };
