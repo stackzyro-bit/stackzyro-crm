@@ -18,6 +18,11 @@ const OUTCOME_HINTS: Record<string, string> = {
   do_not_contact: "Stop all future outreach for this business.",
 };
 
+const ALPHABET = [
+  "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+  "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+];
+
 export function RecordCallModal({
   open,
   onClose,
@@ -36,6 +41,7 @@ export function RecordCallModal({
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [leadFilter, setLeadFilter] = useState("");
+  const [selectedLetter, setSelectedLetter] = useState<string | null>(null);
   const [form, setForm] = useState({
     lead_id: "",
     called_at: toDateTimeInput(new Date().toISOString()),
@@ -63,6 +69,7 @@ export function RecordCallModal({
       create_follow_up: !callRecord,
     });
     setLeadFilter("");
+    setSelectedLetter(null);
     setErrors({});
     let active = true;
     setLoadingLeads(true);
@@ -102,16 +109,42 @@ export function RecordCallModal({
 
   const selectedLead = leads.find((lead) => lead.id === Number(form.lead_id));
 
+  const letterCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const lead of leads) {
+      const name = (lead.business_name || "").trim();
+      if (!name) continue;
+      const char = name.charAt(0).toUpperCase();
+      if (char >= "A" && char <= "Z") {
+        counts[char] = (counts[char] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [leads]);
+
   const filteredLeads = useMemo(() => {
-    if (!leadFilter.trim()) return leads;
-    const q = leadFilter.toLowerCase().trim();
-    return leads.filter(
-      (l) =>
-        l.business_name?.toLowerCase().includes(q) ||
-        l.code?.toLowerCase().includes(q) ||
-        l.contact_person?.toLowerCase().includes(q)
-    );
-  }, [leads, leadFilter]);
+    return leads.filter((l) => {
+      const name = (l.business_name || "").trim();
+      const firstChar = name.charAt(0).toUpperCase();
+
+      if (selectedLetter && firstChar !== selectedLetter) {
+        return false;
+      }
+
+      if (leadFilter.trim()) {
+        const q = leadFilter.toLowerCase().trim();
+        const matchesName = name.toLowerCase().includes(q);
+        const matchesCode = (l.code || "").toLowerCase().includes(q);
+        const matchesContact = (l.contact_person || "").toLowerCase().includes(q);
+        const matchesPhone = (l.phone || "").toLowerCase().includes(q);
+        if (!matchesName && !matchesCode && !matchesContact && !matchesPhone) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [leads, selectedLetter, leadFilter]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -210,14 +243,18 @@ export function RecordCallModal({
                 {loadingLeads
                   ? "Loading leads…"
                   : filteredLeads.length === 0
-                  ? "No matching leads found"
+                  ? selectedLetter
+                    ? `No leads found under letter "${selectedLetter}"`
+                    : "No matching leads found"
+                  : selectedLetter
+                  ? `Select a lead under letter "${selectedLetter}" (${filteredLeads.length} available)`
                   : "Select a lead"}
               </option>
               {form.lead_id &&
               selectedLead &&
               !filteredLeads.some((l) => l.id === selectedLead.id) ? (
                 <option value={selectedLead.id}>
-                  {selectedLead.business_name} · {selectedLead.code}
+                  {selectedLead.business_name} · {selectedLead.code} (Selected)
                 </option>
               ) : null}
               {filteredLeads.map((lead) => (
@@ -227,7 +264,68 @@ export function RecordCallModal({
               ))}
             </Select>
           </Field>
-          {leads.length > 0 ? (
+
+          {!callRecord ? (
+            <div className="mt-2.5 rounded-lg border border-line bg-slate-50/60 p-2.5">
+              <div className="mb-1.5 flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-ink-700">Filter by letter (A–Z):</span>
+                  {selectedLetter ? (
+                    <span className="inline-flex items-center gap-1 rounded bg-brand-100 px-1.5 py-0.5 text-[11px] font-semibold text-brand-800">
+                      Letter "{selectedLetter}"
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLetter(null)}
+                        className="ml-0.5 text-brand-600 hover:text-brand-900"
+                        title="Clear letter filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : null}
+                </div>
+                <span className="text-[10px] text-ink-400">
+                  Showing {filteredLeads.length} of {leads.length} available leads
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLetter(null)}
+                  className={`rounded border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+                    selectedLetter === null
+                      ? "border-brand-600 bg-brand-600 text-white shadow-xs"
+                      : "border-line bg-white text-ink-700 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                  }`}
+                  title="Show all leads"
+                >
+                  All
+                </button>
+                {ALPHABET.map((char) => {
+                  const count = letterCounts[char] || 0;
+                  const isSelected = selectedLetter === char;
+                  const hasLeads = count > 0;
+                  return (
+                    <button
+                      key={char}
+                      type="button"
+                      onClick={() => setSelectedLetter(isSelected ? null : char)}
+                      className={`min-w-[24px] rounded border px-1 py-0.5 text-center text-[11px] font-medium transition-colors ${
+                        isSelected
+                          ? "border-brand-600 bg-brand-600 font-bold text-white shadow-xs"
+                          : hasLeads
+                          ? "border-line bg-white text-ink-700 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700"
+                          : "border-slate-200/60 bg-slate-100/50 text-ink-300 hover:bg-slate-200/50 hover:text-ink-500"
+                      }`}
+                      title={`${char}: ${count} lead${count === 1 ? "" : "s"}`}
+                    >
+                      {char}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : leads.length > 0 ? (
             <p className="mt-1 text-[10px] text-ink-400">
               Showing {filteredLeads.length} of {leads.length} available leads
             </p>
