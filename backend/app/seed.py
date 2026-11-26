@@ -460,13 +460,13 @@ def seed_database(db: Session) -> bool:
                 code=next_code(db, "MT"),
                 lead_id=lead.id,
                 staff_id=lead.assigned_staff_id,
-                scheduled_at=scheduled,
+                scheduled_at=to_utc_naive(scheduled),
                 duration_minutes=RANDOM.choice([30, 45, 60]),
                 meeting_type=meeting_type,
                 location=location,
                 status=status,
                 notes="Discovery call to understand scope and decision timeline.",
-                created_at=scheduled - timedelta(days=3),
+                created_at=to_utc_naive(scheduled - timedelta(days=3)),
             )
         )
 

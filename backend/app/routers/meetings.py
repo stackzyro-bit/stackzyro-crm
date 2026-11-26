@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -10,6 +8,7 @@ from ..deps import get_current_user, require_permission
 from ..models import Lead, Meeting, User
 from ..schemas import MeetingCreate, MeetingUpdate
 from ..serialize import meeting_dict
+from ..timezone import ist_day_bounds_utc, to_ist, to_utc_naive
 from ..utils import log_activity, next_code, paginate, parse_date, require_found
 
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
@@ -44,9 +43,11 @@ def list_meetings(
     start = parse_date(date_from)
     end = parse_date(date_to)
     if start:
-        stmt = stmt.where(Meeting.scheduled_at >= datetime.combine(start, datetime.min.time()))
+        start_utc, _ = ist_day_bounds_utc(start)
+        stmt = stmt.where(Meeting.scheduled_at >= start_utc)
     if end:
-        stmt = stmt.where(Meeting.scheduled_at <= datetime.combine(end, datetime.max.time()))
+        _, end_utc = ist_day_bounds_utc(end)
+        stmt = stmt.where(Meeting.scheduled_at <= end_utc)
     stmt = stmt.order_by(Meeting.scheduled_at.desc(), Meeting.id.desc())
     result = paginate(db, stmt, page, page_size)
     return {**result, "items": [meeting_dict(row) for row in result["items"]]}
@@ -66,11 +67,15 @@ def create_meeting(
         )
     staff_id = payload.staff_id if user.role == "admin" else user.id
     staff_id = staff_id or lead.assigned_staff_id or user.id
+    # The client sends the wall-clock time selected in the form; treat it as IST
+    # and store the equivalent naive UTC value, which is the DB convention.
+    scheduled_utc = to_utc_naive(payload.scheduled_at)
+    scheduled_ist = to_ist(scheduled_utc)
     meeting = Meeting(
         code=next_code(db, "MT"),
         lead_id=lead.id,
         staff_id=staff_id,
-        scheduled_at=payload.scheduled_at,
+        scheduled_at=scheduled_utc,
         duration_minutes=payload.duration_minutes,
         meeting_type=payload.meeting_type,
         location=payload.location,
@@ -84,7 +89,7 @@ def create_meeting(
         actor_id=user.id,
         type="meeting_scheduled",
         title=f"Meeting scheduled with {lead.business_name}",
-        description=f"{meeting.code} · {payload.scheduled_at.strftime('%d %b %Y, %I:%M %p')}",
+        description=f"{meeting.code} · {scheduled_ist.strftime('%d %b %Y, %I:%M %p')} IST",
         entity_type="meeting",
         entity_id=meeting.id,
     )
@@ -93,7 +98,10 @@ def create_meeting(
         actor_id=user.id,
         action="meeting.created",
         category="meeting",
-        description=f"Meeting {meeting.code} scheduled with {lead.business_name} on {payload.scheduled_at.strftime('%Y-%m-%d %H:%M')}",
+        description=(
+            f"Meeting {meeting.code} scheduled with {lead.business_name} on "
+            f"{scheduled_ist.strftime('%Y-%m-%d %H:%M')} IST"
+        ),
         entity_type="meeting",
         entity_id=meeting.id,
         entity_ref=meeting.code,
@@ -119,6 +127,13 @@ def update_meeting(
     data = payload.model_dump(exclude_unset=True)
     if user.role != "admin":
         data.pop("staff_id", None)
+    if "scheduled_at" in data:
+        if data["scheduled_at"] is None:
+            # Never overwrite an existing meeting with an empty time.
+            data.pop("scheduled_at")
+        else:
+            # Same contract as create: the incoming value is IST wall-clock time.
+            data["scheduled_at"] = to_utc_naive(data["scheduled_at"])
     for field, value in data.items():
         setattr(meeting, field, value)
     db.commit()

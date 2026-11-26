@@ -27,6 +27,7 @@ import { api } from "../lib/api";
 import {
   MEETING_STATUS_LABELS,
   MEETING_TYPE_LABELS,
+  dateTimeInputToIso,
   formatDate,
   formatTime,
   labelFor,
@@ -191,7 +192,7 @@ export function Meetings() {
     try {
       const payload = {
         lead_id: form.lead_id ? Number(form.lead_id) : undefined,
-        scheduled_at: form.scheduled_at,
+        scheduled_at: dateTimeInputToIso(form.scheduled_at),
         duration_minutes: Number(form.duration_minutes) || 30,
         meeting_type: form.meeting_type,
         location: form.location.trim() || null,

@@ -58,6 +58,7 @@ import {
   CALL_OUTCOME_LABELS,
   FOLLOWUP_STATUS_LABELS,
   MEETING_TYPE_LABELS,
+  datePartsIst,
   formatDate,
   formatTime,
   greeting,
@@ -713,15 +714,15 @@ export function Dashboard() {
                 ) : (
                   <div className="divide-y divide-line">
                     {(data.upcoming_meetings ?? []).map((meeting) => {
-                      const date = new Date(meeting.scheduled_at);
+                      const parts = datePartsIst(meeting.scheduled_at);
                       return (
                         <div key={meeting.id} className="flex items-start gap-3 px-5 py-3">
                           <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-lg bg-brand-50 text-brand-700">
                             <span className="text-[13px] font-bold leading-none">
-                              {date.getDate()}
+                              {parts.day}
                             </span>
                             <span className="mt-0.5 text-[8px] uppercase leading-none">
-                              {new Intl.DateTimeFormat("en-GB", { month: "short" }).format(date)}
+                              {parts.month}
                             </span>
                           </div>
                           <div className="min-w-0 flex-1">

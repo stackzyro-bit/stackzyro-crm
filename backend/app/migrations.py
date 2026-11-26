@@ -4,6 +4,48 @@ from .database import engine
 
 logger = logging.getLogger("stackzyro.migrations")
 
+# Meetings were originally written to the database as IST wall-clock time while
+# the rest of the system stores UTC. This key marks the one-off correction.
+MEETING_TIMEZONE_MIGRATION_KEY = "meeting_timezone_fix_v1"
+
+
+def _migrate_meeting_timezone(conn, is_sqlite: bool) -> None:
+    """Shift existing meetings from IST wall-clock time to naive UTC (once)."""
+    try:
+        applied = conn.execute(
+            text("SELECT value FROM settings WHERE key = :key"),
+            {"key": MEETING_TIMEZONE_MIGRATION_KEY},
+        ).scalar()
+        if applied:
+            return
+
+        total = conn.execute(text("SELECT COUNT(*) FROM meetings")).scalar() or 0
+        if total:
+            if is_sqlite:
+                conn.execute(
+                    text(
+                        "UPDATE meetings "
+                        "SET scheduled_at = datetime(scheduled_at, '-5 hours', '-30 minutes')"
+                    )
+                )
+            else:
+                conn.execute(
+                    text(
+                        "UPDATE meetings "
+                        "SET scheduled_at = scheduled_at - INTERVAL '5 hours 30 minutes'"
+                    )
+                )
+            logger.info("Converted %s meeting(s) from IST wall-clock to UTC storage.", total)
+
+        conn.execute(
+            text("INSERT INTO settings (key, value) VALUES (:key, :value)"),
+            {"key": MEETING_TIMEZONE_MIGRATION_KEY, "value": "applied"},
+        )
+        conn.commit()
+    except Exception as ex:
+        logger.warning("Meeting timezone migration skipped: %s", ex)
+
+
 def apply_migrations():
     """
     Safely adds missing columns and indices to SQLite or PostgreSQL tables without deleting data.
@@ -195,3 +237,6 @@ def apply_migrations():
                 logger.info("Backfilled attendance sessions from legacy records.")
         except Exception as ex:
             logger.warning("Attendance sessions backfill note: %s", ex)
+
+        # 6. One-off: meetings stored as IST wall-clock time -> naive UTC.
+        _migrate_meeting_timezone(conn, is_sqlite)

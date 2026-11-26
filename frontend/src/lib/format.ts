@@ -246,10 +246,36 @@ export function toDateTimeInput(value: string | null | undefined): string {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false,
+    hourCycle: "h23",
   }).formatToParts(date);
   const get = (type: string) => parts.find((p) => p.type === type)?.value || "00";
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+/**
+ * Convert a `datetime-local` input value (IST wall-clock time) into an ISO-8601
+ * string with an explicit +05:30 offset. This keeps the intended instant
+ * unambiguous and avoids the browser/server re-interpreting a naive string.
+ */
+export function dateTimeInputToIso(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  // Drop any seconds the control may include; the backend accepts HH:mm.
+  const minutes = trimmed.slice(0, 16);
+  return `${minutes}:00+05:30`;
+}
+
+/** Day-of-month and short month for an API timestamp, always in IST. */
+export function datePartsIst(value: string | null | undefined): { day: string; month: string } {
+  const date = parse(value);
+  if (!date) return { day: "—", month: "—" };
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: APP_TIMEZONE,
+    day: "2-digit",
+    month: "short",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return { day: get("day"), month: get("month") };
 }
 
 export function toDateInput(value: Date | string = new Date()): string {
